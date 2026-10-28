@@ -1,0 +1,9 @@
+{
+  "name": "Absensi Teknisi Online",
+  "description": "Aplikasi absensi teknisi online dengan kamera langsung, deteksi keaktifan wajah (liveness), GPS akurat, waktu server WIB, dan sinkronisasi Google Sheets & Drive.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

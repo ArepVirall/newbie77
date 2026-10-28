@@ -1,0 +1,244 @@
+{
+  "admins": [
+    {
+      "id": "admin-super-01",
+      "username": "admin",
+      "fullName": "Administrator Utama",
+      "email": "admin@perusahaan.co.id",
+      "passwordHash": "4a96dc2e13879512a0c4f62fe5b1e55117212e5327a041aabe8047d4f1a1ed39",
+      "role": "superadmin",
+      "status": "active",
+      "mustChangePassword": true,
+      "createdAt": "2026-10-28T15:45:48.127Z"
+    },
+    {
+      "id": "admin-1793204960396",
+      "username": "bambang.ops37",
+      "fullName": "Bambang Sudirgo",
+      "email": "bambang.ops@perusahaan.co.id",
+      "phone": "081299881122",
+      "passwordHash": "042d60b691c9dbb218fde7ce162e2c7e176e07d58e4441edd01d9daeb8c3f616",
+      "role": "full_access",
+      "status": "active",
+      "mustChangePassword": true,
+      "createdAt": "2026-10-28T16:29:20.396Z"
+    }
+  ],
+  "technicians": [
+    {
+      "id": "tek-seed-01",
+      "technicianId": "TEK-2026-001",
+      "fullName": "Budi Santoso",
+      "phone": "081234567890",
+      "email": "budi.santoso@lapangan.id",
+      "role": "Teknisi Jaringan & Fiber Optic",
+      "workArea": "Area Jakarta Pusat",
+      "passwordHash": "3d0b93ba2b627d415ac90b9d7406ad595737327020980e9b38cc2c2d1c96c308",
+      "status": "active",
+      "mustChangePassword": false,
+      "faceEnrolled": true,
+      "faceEnrolledAt": "2026-10-28T15:45:48.128Z",
+      "createdAt": "2026-10-28T15:45:48.128Z"
+    },
+    {
+      "id": "tek-seed-02",
+      "technicianId": "TEK-2026-002",
+      "fullName": "Ahmad Fauzi",
+      "phone": "081398765432",
+      "email": "ahmad.fauzi@lapangan.id",
+      "role": "Teknisi Hardware & CCTV",
+      "workArea": "Area Jakarta Selatan",
+      "passwordHash": "3d0b93ba2b627d415ac90b9d7406ad595737327020980e9b38cc2c2d1c96c308",
+      "status": "active",
+      "mustChangePassword": false,
+      "faceEnrolled": true,
+      "faceEnrolledAt": "2026-10-28T15:45:48.128Z",
+      "createdAt": "2026-10-28T15:45:48.128Z"
+    },
+    {
+      "id": "tek-seed-03",
+      "technicianId": "TEK-2026-003",
+      "fullName": "Rian Pratama",
+      "phone": "085712348899",
+      "email": "rian.pratama@lapangan.id",
+      "role": "Teknisi Listrik & UPS",
+      "workArea": "Area Jakarta Barat",
+      "passwordHash": "3d0b93ba2b627d415ac90b9d7406ad595737327020980e9b38cc2c2d1c96c308",
+      "status": "active",
+      "mustChangePassword": true,
+      "faceEnrolled": false,
+      "createdAt": "2026-10-28T15:45:48.128Z"
+    }
+  ],
+  "workLocations": [
+    {
+      "id": "loc-01",
+      "name": "Kantor Pusat & Workshop Jakarta",
+      "address": "Jl. M.H. Thamrin No. 1, Menteng, Jakarta Pusat",
+      "latitude": -6.2088,
+      "longitude": 106.8456,
+      "radiusMeters": 300,
+      "assignedTechIds": [],
+      "isActive": true,
+      "createdAt": "2026-10-28T16:28:55.463Z"
+    },
+    {
+      "id": "loc-02",
+      "name": "Site Proyek Tower Sudirman",
+      "address": "Kawasan SCBD Sudirman, Senayan, Jakarta Selatan",
+      "latitude": -6.2215,
+      "longitude": 106.8185,
+      "radiusMeters": 300,
+      "assignedTechIds": [],
+      "isActive": true,
+      "createdAt": "2026-10-28T16:28:55.463Z"
+    },
+    {
+      "id": "loc-03",
+      "name": "Gudang Lapangan & Hub Barat",
+      "address": "Jl. Daan Mogot KM 12, Cengkareng, Jakarta Barat",
+      "latitude": -6.1552,
+      "longitude": 106.7328,
+      "radiusMeters": 300,
+      "assignedTechIds": [],
+      "isActive": true,
+      "createdAt": "2026-10-28T16:28:55.463Z"
+    }
+  ],
+  "rejectedAttendances": [
+    {
+      "id": "rej-1793204944795",
+      "technicianId": "tek-seed-01",
+      "technicianCode": "TEK-2026-001",
+      "technicianName": "Budi Santoso",
+      "technicianPhone": "081234567890",
+      "attemptedAt": "2026-10-28T16:29:04.794Z",
+      "localTimeWib": "23:29:04 WIB",
+      "type": "masuk",
+      "latitude": -6.12,
+      "longitude": 106.8,
+      "accuracy": 15,
+      "distanceToLocationMeters": 8397,
+      "maxAllowedRadiusMeters": 300,
+      "workLocationName": "Gudang Lapangan & Hub Barat",
+      "reason": "Di luar radius lokasi kerja (Jarak: 8397 meter, Batas Maks: 300 meter)"
+    }
+  ],
+  "attendances": [
+    {
+      "id": "att-1793204954964-7zsg",
+      "attendanceCode": "ABS-20261028-TEK2026001-MASUK",
+      "technicianId": "tek-seed-01",
+      "technicianCode": "TEK-2026-001",
+      "technicianName": "Budi Santoso",
+      "technicianPhone": "081234567890",
+      "workDate": "2026-10-28",
+      "type": "masuk",
+      "serverTimestamp": "2026-10-28T16:29:14.963Z",
+      "localTimeWib": "23:29:14 WIB",
+      "deviceTimestamp": "2026-10-28T16:29:14.964Z",
+      "latitude": -6.2089,
+      "longitude": 106.8457,
+      "accuracy": 10,
+      "locationName": "Area Terverifikasi GPS (Kantor Pusat & Workshop Jakarta)",
+      "workLocationId": "loc-01",
+      "workLocationName": "Kantor Pusat & Workshop Jakarta",
+      "distanceToOfficeMeters": 16,
+      "maxAllowedRadiusMeters": 300,
+      "isWithinRadius": true,
+      "photoBase64": "data:image/jpeg;base64,/9j/4AAQSkZJRg==",
+      "livenessPassed": true,
+      "faceVerified": true,
+      "lateStatus": "TERLAMBAT",
+      "minutesLate": 900
+    }
+  ],
+  "leaves": [],
+  "correctionRequests": [],
+  "settings": {
+    "workStartTime": "08:00:00",
+    "workEndTime": "17:00:00",
+    "cutoffTime": "08:30:00",
+    "cutoffGraceMinutes": 0,
+    "timezone": "Asia/Jakarta",
+    "officeName": "Kantor Pusat & Workshop Lapangan Jakarta",
+    "officeLatitude": -6.2088,
+    "officeLongitude": 106.8456,
+    "officeRadiusMeters": 300,
+    "enforceGeofence": false,
+    "maxGpsAccuracyMeters": 100,
+    "requireLiveness": true
+  },
+  "auditLogs": [
+    {
+      "id": "log-1793204964807-l024",
+      "timestamp": "2026-10-28T16:29:24.807Z",
+      "actorId": "admin-1793204960396",
+      "actorName": "Bambang Sudirgo",
+      "actorRole": "full_access",
+      "action": "LOGIN_SUCCESS",
+      "target": "Admin Auth",
+      "details": "Admin berhasil login ke dashboard"
+    },
+    {
+      "id": "log-1793204960396-pgfd",
+      "timestamp": "2026-10-28T16:29:20.396Z",
+      "actorId": "admin",
+      "actorName": "Super Admin",
+      "actorRole": "superadmin",
+      "action": "ADD_NEW_ADMIN",
+      "target": "Admin bambang.ops@perusahaan.co.id",
+      "details": "Menambahkan admin baru Bambang Sudirgo dengan peran: full_access dan hak akses aktif."
+    },
+    {
+      "id": "log-1793204954964-2oko",
+      "timestamp": "2026-10-28T16:29:14.964Z",
+      "actorId": "tek-seed-01",
+      "actorName": "Budi Santoso",
+      "actorRole": "technician",
+      "action": "CHECK_IN",
+      "target": "Absensi MASUK",
+      "details": "Absen masuk sukses pada 23:29:14 WIB (Status: TERLAMBAT, Jarak: 16m dari Kantor Pusat & Workshop Jakarta)"
+    },
+    {
+      "id": "log-1793204944795-1k73",
+      "timestamp": "2026-10-28T16:29:04.795Z",
+      "actorId": "tek-seed-01",
+      "actorName": "Budi Santoso",
+      "actorRole": "technician",
+      "action": "ATTENDANCE_REJECTED_RADIUS",
+      "target": "Absensi MASUK",
+      "details": "Absensi ditolak karena posisi teknisi (8397m) berada di luar radius wajib 300m dari Gudang Lapangan & Hub Barat."
+    },
+    {
+      "id": "log-1793202366682-pxzf",
+      "timestamp": "2026-10-28T15:46:06.682Z",
+      "actorId": "admin-super-01",
+      "actorName": "Administrator Utama",
+      "actorRole": "superadmin",
+      "action": "PASSWORD_CHANGE",
+      "target": "Admin Auth",
+      "details": "Admin berhasil memperbarui password"
+    },
+    {
+      "id": "log-1793202358175-39f7",
+      "timestamp": "2026-10-28T15:45:58.175Z",
+      "actorId": "admin-super-01",
+      "actorName": "Administrator Utama",
+      "actorRole": "superadmin",
+      "action": "LOGIN_SUCCESS",
+      "target": "Admin Auth",
+      "details": "Admin berhasil login ke sistem"
+    },
+    {
+      "id": "log-init-01",
+      "timestamp": "2026-10-28T15:45:48.128Z",
+      "actorId": "system",
+      "actorName": "System Setup",
+      "actorRole": "system",
+      "action": "SYSTEM_INITIALIZATION",
+      "target": "Database",
+      "details": "Inisialisasi sistem absensi teknisi online dengan batas jam masuk 08:30:00 WIB"
+    }
+  ]
+}
