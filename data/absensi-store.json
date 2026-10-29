@@ -8,7 +8,7 @@
       "passwordHash": "4a96dc2e13879512a0c4f62fe5b1e55117212e5327a041aabe8047d4f1a1ed39",
       "role": "superadmin",
       "status": "active",
-      "mustChangePassword": true,
+      "mustChangePassword": false,
       "createdAt": "2026-10-28T15:45:48.127Z"
     },
     {
@@ -155,21 +155,123 @@
   ],
   "leaves": [],
   "correctionRequests": [],
+  "passwordResetTokens": [
+    {
+      "id": "reset-1793260590845-c7a9e060",
+      "email": "admin@perusahaan.co.id",
+      "token": "b5c3d8047fb84b77a2d717338ac82e32f9a130625ea8189ce0b3e83c6c7b06b0",
+      "userId": "admin-super-01",
+      "userType": "admin",
+      "userName": "Administrator Utama",
+      "expiresAt": "2026-10-29T08:56:30.845Z",
+      "used": true,
+      "createdAt": "2026-10-29T07:56:30.845Z"
+    }
+  ],
   "settings": {
     "workStartTime": "08:00:00",
     "workEndTime": "17:00:00",
     "cutoffTime": "08:30:00",
     "cutoffGraceMinutes": 0,
     "timezone": "Asia/Jakarta",
+    "defaultRadiusMeters": 300,
+    "enforceRadius300m": true,
     "officeName": "Kantor Pusat & Workshop Lapangan Jakarta",
     "officeLatitude": -6.2088,
     "officeLongitude": 106.8456,
     "officeRadiusMeters": 300,
     "enforceGeofence": false,
     "maxGpsAccuracyMeters": 100,
-    "requireLiveness": true
+    "requireLiveness": true,
+    "emailNotifications": {
+      "enabled": true,
+      "adminEmail": "rickysantoso71@gmail.com",
+      "notifyAdminLogin": true,
+      "notifyTechnicianLogin": false,
+      "notifyPasswordChanged": true
+    }
   },
   "auditLogs": [
+    {
+      "id": "log-1793260650846-awit",
+      "timestamp": "2026-10-29T07:57:30.846Z",
+      "actorId": "admin",
+      "actorName": "Admin",
+      "actorRole": "admin",
+      "action": "UPDATE_EMAIL_SETTINGS",
+      "target": "Keamanan Email",
+      "details": "Memperbarui pengaturan notifikasi email: Penerima rickysantoso71@gmail.com, Alert Admin: true"
+    },
+    {
+      "id": "log-1793260623953-k9m6",
+      "timestamp": "2026-10-29T07:57:03.953Z",
+      "actorId": "admin-super-01",
+      "actorName": "Administrator Utama",
+      "actorRole": "superadmin",
+      "action": "RESET_PASSWORD_SUCCESS",
+      "target": "Auth Recovery",
+      "details": "Kata sandi admin berhasil direset via token email (IP: 127.0.0.1)"
+    },
+    {
+      "id": "log-1793260590845-oo27",
+      "timestamp": "2026-10-29T07:56:30.845Z",
+      "actorId": "admin-super-01",
+      "actorName": "Administrator Utama",
+      "actorRole": "admin",
+      "action": "FORGOT_PASSWORD_REQUEST",
+      "target": "Auth Recovery",
+      "details": "Permintaan link reset password dibuat untuk admin@perusahaan.co.id (IP: 127.0.0.1)"
+    },
+    {
+      "id": "log-1793260580252-ocdh",
+      "timestamp": "2026-10-29T07:56:20.252Z",
+      "actorId": "tek-seed-01",
+      "actorName": "Budi Santoso",
+      "actorRole": "technician",
+      "action": "LOGIN_SUCCESS",
+      "target": "Technician Auth",
+      "details": "Teknisi berhasil login ke portal absensi (IP: 127.0.0.1)"
+    },
+    {
+      "id": "log-1793260573477-a6sd",
+      "timestamp": "2026-10-29T07:56:13.477Z",
+      "actorId": "admin-super-01",
+      "actorName": "Administrator Utama",
+      "actorRole": "superadmin",
+      "action": "LOGIN_SUCCESS",
+      "target": "Admin Auth",
+      "details": "Admin berhasil login ke dashboard (IP: 127.0.0.1)"
+    },
+    {
+      "id": "log-1793260515962-38g7",
+      "timestamp": "2026-10-29T07:55:15.962Z",
+      "actorId": "anonymous",
+      "actorName": "admin",
+      "actorRole": "unknown",
+      "action": "LOGIN_FAILED",
+      "target": "Auth",
+      "details": "Percobaan login gagal untuk user: admin (IP: 127.0.0.1)"
+    },
+    {
+      "id": "log-1793259684185-i9au",
+      "timestamp": "2026-10-29T07:41:24.185Z",
+      "actorId": "admin-super-01",
+      "actorName": "Administrator Utama",
+      "actorRole": "superadmin",
+      "action": "PASSWORD_CHANGE",
+      "target": "Admin Auth",
+      "details": "Admin berhasil memperbarui kata sandi akun"
+    },
+    {
+      "id": "log-1793259666258-2bvp",
+      "timestamp": "2026-10-29T07:41:06.258Z",
+      "actorId": "admin-super-01",
+      "actorName": "Administrator Utama",
+      "actorRole": "superadmin",
+      "action": "LOGIN_SUCCESS",
+      "target": "Admin Auth",
+      "details": "Admin berhasil login ke dashboard"
+    },
     {
       "id": "log-1793204964807-l024",
       "timestamp": "2026-10-28T16:29:24.807Z",

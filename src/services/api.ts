@@ -3,7 +3,9 @@ import {
   AdminSettings,
   AttendanceRecord,
   AuditLogItem,
+  EmailNotificationSettings,
   LeaveItem,
+  PasswordResetVerifyResponse,
   RejectedAttendance,
   ServerTimeResponse,
   TechnicianItem,
@@ -13,62 +15,134 @@ import {
 
 const API_BASE = '/api';
 
+/**
+ * Robust API fetcher that guarantees safety against:
+ * 1. "Unexpected end of JSON input" on Netlify / empty responses
+ * 2. HTML 404/502 error pages returned by CDN / proxies
+ * 3. Network abort / timeout issues
+ */
+async function safeRequest<T = any>(
+  endpoint: string,
+  options: RequestInit = {},
+  timeoutMs: number = 20000
+): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  const headers = new Headers(options.headers || {});
+  if (!headers.has('Accept')) {
+    headers.set('Accept', 'application/json');
+  }
+
+  const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+
+  try {
+    const res = await fetch(url, {
+      ...options,
+      headers,
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    // Read as raw text first to avoid Response.json() JSON parse exception on HTML/empty response
+    const rawText = await res.text();
+    let parsed: any = null;
+
+    if (rawText && rawText.trim().length > 0) {
+      try {
+        parsed = JSON.parse(rawText);
+      } catch (parseErr) {
+        console.warn(`[API] Respon non-JSON diterima dari ${url} (HTTP ${res.status}):`, rawText.slice(0, 160));
+        if (!res.ok) {
+          throw new Error(`Server mengembalikan respon tidak terduga (Status ${res.status}). Pastikan endpoint backend aktif.`);
+        }
+        throw new Error('Respon server bukan format JSON yang valid.');
+      }
+    } else {
+      if (!res.ok) {
+        throw new Error(`Permintaan gagal dengan status ${res.status} (${res.statusText || 'Respon kosong'}).`);
+      }
+      return {} as T;
+    }
+
+    if (!res.ok) {
+      const errorMsg = parsed?.message || parsed?.error || `Permintaan gagal (Status ${res.status})`;
+      throw new Error(errorMsg);
+    }
+
+    return parsed as T;
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      throw new Error('Waktu permintaan habis (Timeout 20s). Periksa koneksi internet Anda atau coba lagi.');
+    }
+    throw err;
+  }
+}
+
 export const api = {
   // 1. Time
   async getServerTime(): Promise<ServerTimeResponse> {
-    const res = await fetch(`${API_BASE}/time`);
-    const json = await res.json();
-    return json.data;
+    const res = await safeRequest<{ status: string; data: ServerTimeResponse }>('/time');
+    return res.data;
   },
 
   // 2. Auth
-  async login(username: string, password: string, loginType?: 'admin' | 'technician') {
-    const res = await fetch(`${API_BASE}/auth/login`, {
+  async login(username: string, password: string, loginType?: 'admin' | 'technician'): Promise<{ status: string; token: string; user: UserSession }> {
+    return safeRequest('/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password, loginType }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Login gagal');
-    return data;
   },
 
   async changePassword(userId: string, oldPassword: string, newPassword: string, userType: 'admin' | 'technician') {
-    const res = await fetch(`${API_BASE}/auth/change-password`, {
+    return safeRequest('/auth/change-password', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId, oldPassword, newPassword, userType }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal mengubah kata sandi');
-    return data;
+  },
+
+  async forgotPassword(email: string): Promise<{ status: string; message: string }> {
+    return safeRequest('/auth/forgot-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+  },
+
+  async verifyResetToken(token: string): Promise<PasswordResetVerifyResponse> {
+    return safeRequest(`/auth/verify-reset-token?token=${encodeURIComponent(token)}`);
+  },
+
+  async resetPassword(token: string, newPassword: string): Promise<{ status: string; message: string }> {
+    return safeRequest('/auth/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, newPassword }),
+    });
   },
 
   async recoverAdmin(recoveryCode: string, newPassword?: string) {
-    const res = await fetch(`${API_BASE}/auth/recover-admin`, {
+    return safeRequest('/auth/recover-admin', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ recoveryCode, newPassword }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memulihkan kata sandi');
-    return data;
   },
 
   // 3. Admin Overview
   async getAdminOverview() {
-    const res = await fetch(`${API_BASE}/admin/overview`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memuat ringkasan admin');
-    return data.data;
+    const res = await safeRequest<{ status: string; data: any }>('/admin/overview');
+    return res.data;
   },
 
   // 4. Work Locations (PENGATURAN LOKASI ABSENSI & RADIUS 300 METER)
   async getWorkLocations(): Promise<WorkLocation[]> {
-    const res = await fetch(`${API_BASE}/admin/work-locations`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memuat lokasi kerja');
-    return data.data;
+    const res = await safeRequest<{ status: string; data: WorkLocation[] }>('/admin/work-locations');
+    return res.data;
   },
 
   async createWorkLocation(payload: {
@@ -81,14 +155,11 @@ export const api = {
     adminActorId?: string;
     adminActorName?: string;
   }) {
-    const res = await fetch(`${API_BASE}/admin/work-locations`, {
+    return safeRequest('/admin/work-locations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal menambahkan lokasi kerja');
-    return data;
   },
 
   async updateWorkLocation(
@@ -105,38 +176,28 @@ export const api = {
       adminActorName?: string;
     }
   ) {
-    const res = await fetch(`${API_BASE}/admin/work-locations/${id}`, {
+    return safeRequest(`/admin/work-locations/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memperbarui lokasi kerja');
-    return data;
   },
 
   async deleteWorkLocation(id: string, adminActorId?: string, adminActorName?: string) {
-    const res = await fetch(`${API_BASE}/admin/work-locations/${id}?adminActorId=${adminActorId || ''}&adminActorName=${adminActorName || ''}`, {
+    return safeRequest(`/admin/work-locations/${id}?adminActorId=${adminActorId || ''}&adminActorName=${adminActorName || ''}`, {
       method: 'DELETE',
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal menghapus lokasi kerja');
-    return data;
   },
 
   async getRejectedAttendances(): Promise<RejectedAttendance[]> {
-    const res = await fetch(`${API_BASE}/admin/rejected-attendances`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memuat riwayat penolakan');
-    return data.data;
+    const res = await safeRequest<{ status: string; data: RejectedAttendance[] }>('/admin/rejected-attendances');
+    return res.data;
   },
 
   // 5. Technicians
   async getTechnicians(): Promise<TechnicianItem[]> {
-    const res = await fetch(`${API_BASE}/admin/technicians`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memuat teknisi');
-    return data.data;
+    const res = await safeRequest<{ status: string; data: TechnicianItem[] }>('/admin/technicians');
+    return res.data;
   },
 
   async createTechnician(payload: {
@@ -150,14 +211,11 @@ export const api = {
     adminActorId?: string;
     adminActorName?: string;
   }) {
-    const res = await fetch(`${API_BASE}/admin/technicians`, {
+    return safeRequest('/admin/technicians', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal mendaftarkan teknisi');
-    return data;
   },
 
   async updateTechnician(
@@ -175,14 +233,11 @@ export const api = {
       adminActorName?: string;
     }
   ) {
-    const res = await fetch(`${API_BASE}/admin/technicians/${id}`, {
+    return safeRequest(`/admin/technicians/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memperbarui teknisi');
-    return data;
   },
 
   // 6. Attendances
@@ -205,10 +260,9 @@ export const api = {
       if (filters.workLocationId) params.append('workLocationId', filters.workLocationId);
       if (filters.search) params.append('search', filters.search);
     }
-    const res = await fetch(`${API_BASE}/admin/attendances?${params.toString()}`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memuat absensi');
-    return data.data;
+    const query = params.toString() ? `?${params.toString()}` : '';
+    const res = await safeRequest<{ status: string; data: AttendanceRecord[] }>(`/admin/attendances${query}`);
+    return res.data;
   },
 
   async correctAttendance(
@@ -221,22 +275,17 @@ export const api = {
       adminActorName?: string;
     }
   ) {
-    const res = await fetch(`${API_BASE}/admin/attendances/${id}/correct`, {
+    return safeRequest(`/admin/attendances/${id}/correct`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal mengoreksi absensi');
-    return data;
   },
 
   // 7. Admin accounts management
   async getAdmins(): Promise<AdminAccount[]> {
-    const res = await fetch(`${API_BASE}/admin/admins`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memuat admin');
-    return data.data;
+    const res = await safeRequest<{ status: string; data: AdminAccount[] }>('/admin/admins');
+    return res.data;
   },
 
   async createAdmin(payload: {
@@ -248,14 +297,11 @@ export const api = {
     adminActorId?: string;
     adminActorName?: string;
   }) {
-    const res = await fetch(`${API_BASE}/admin/admins`, {
+    return safeRequest('/admin/admins', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal menambahkan admin');
-    return data;
   },
 
   async updateAdmin(
@@ -271,77 +317,74 @@ export const api = {
       adminActorName?: string;
     }
   ) {
-    const res = await fetch(`${API_BASE}/admin/admins/${id}`, {
+    return safeRequest(`/admin/admins/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memperbarui admin');
-    return data;
   },
 
   async deleteAdmin(id: string, adminActorId?: string, adminActorName?: string) {
-    const res = await fetch(`${API_BASE}/admin/admins/${id}?adminActorId=${adminActorId || ''}&adminActorName=${adminActorName || ''}`, {
+    return safeRequest(`/admin/admins/${id}?adminActorId=${adminActorId || ''}&adminActorName=${adminActorName || ''}`, {
       method: 'DELETE',
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal mencabut akses admin');
-    return data;
   },
 
   // 8. Settings
   async getSettings(): Promise<AdminSettings> {
-    const res = await fetch(`${API_BASE}/admin/settings`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memuat pengaturan');
-    return data.data;
+    const res = await safeRequest<{ status: string; data: AdminSettings }>('/admin/settings');
+    return res.data;
   },
 
   async updateSettings(payload: Partial<AdminSettings> & { adminActorId?: string; adminActorName?: string }) {
-    const res = await fetch(`${API_BASE}/admin/settings`, {
+    return safeRequest('/admin/settings', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal menyimpan pengaturan');
-    return data;
+  },
+
+  async updateEmailSettings(payload: {
+    enabled?: boolean;
+    adminEmail?: string;
+    notifyAdminLogin?: boolean;
+    notifyTechnicianLogin?: boolean;
+    notifyPasswordChanged?: boolean;
+    testSend?: boolean;
+    adminActorId?: string;
+    adminActorName?: string;
+  }): Promise<{ status: string; message: string; data: EmailNotificationSettings & { testResult?: any } }> {
+    return safeRequest('/admin/settings/email', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
   },
 
   // 9. Audit Logs
   async getAuditLogs(): Promise<AuditLogItem[]> {
-    const res = await fetch(`${API_BASE}/admin/audit-logs`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memuat audit log');
-    return data.data;
+    const res = await safeRequest<{ status: string; data: AuditLogItem[] }>('/admin/audit-logs');
+    return res.data;
   },
 
   // 10. Leaves
   async getLeaves(): Promise<LeaveItem[]> {
-    const res = await fetch(`${API_BASE}/admin/leaves`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memuat daftar izin/sakit');
-    return data.data;
+    const res = await safeRequest<{ status: string; data: LeaveItem[] }>('/admin/leaves');
+    return res.data;
   },
 
   async reviewLeave(id: string, status: 'approved' | 'rejected', reviewNote?: string, adminActorId?: string, adminActorName?: string) {
-    const res = await fetch(`${API_BASE}/admin/leaves/${id}/status`, {
+    return safeRequest(`/admin/leaves/${id}/status`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status, reviewNote, adminActorId, adminActorName }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memproses permohonan');
-    return data;
   },
 
   // 11. Technician Dashboard & Attendance
   async getTechnicianDashboard(id: string) {
-    const res = await fetch(`${API_BASE}/technician/dashboard/${id}`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memuat data teknisi');
-    return data.data;
+    const res = await safeRequest<{ status: string; data: any }>(`/technician/dashboard/${id}`);
+    return res.data;
   },
 
   async submitAttendance(payload: {
@@ -356,25 +399,19 @@ export const api = {
     deviceTimestamp?: string;
     livenessPassed?: boolean;
   }) {
-    const res = await fetch(`${API_BASE}/technician/attendance`, {
+    return safeRequest('/technician/attendance', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal merekam absensi');
-    return data;
   },
 
   async enrollFace(payload: { technicianId: string; photoBase64: string; livenessPassed?: boolean }) {
-    const res = await fetch(`${API_BASE}/technician/face-enroll`, {
+    return safeRequest('/technician/face-enroll', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal mendaftarkan wajah');
-    return data;
   },
 
   async submitLeave(payload: {
@@ -385,14 +422,11 @@ export const api = {
     reason: string;
     attachmentNote?: string;
   }) {
-    const res = await fetch(`${API_BASE}/technician/leave`, {
+    return safeRequest('/technician/leave', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal mengirim pengajuan izin');
-    return data;
   },
 
   // 12. Google Sync
@@ -402,20 +436,15 @@ export const api = {
     adminActorId?: string;
     adminActorName?: string;
   }) {
-    const res = await fetch(`${API_BASE}/admin/google-sync/record-sync`, {
+    return safeRequest('/admin/google-sync/record-sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal mencatat status sinkronisasi');
-    return data;
   },
 
   async getGoogleSyncStatus() {
-    const res = await fetch(`${API_BASE}/admin/google-sync/status`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Gagal memuat status sinkronisasi');
-    return data.data;
+    const res = await safeRequest<{ status: string; data: any }>('/admin/google-sync/status');
+    return res.data;
   },
 };

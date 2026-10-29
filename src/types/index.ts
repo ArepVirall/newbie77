@@ -112,6 +112,16 @@ export interface LeaveItem {
   createdAt: string;
 }
 
+export interface EmailNotificationSettings {
+  enabled: boolean;
+  adminEmail: string;
+  notifyAdminLogin: boolean;
+  notifyTechnicianLogin: boolean;
+  notifyPasswordChanged: boolean;
+  hasResendKey?: boolean;
+  hasBrevoKey?: boolean;
+}
+
 export interface AdminSettings {
   workStartTime: string;
   workEndTime: string;
@@ -130,6 +140,15 @@ export interface AdminSettings {
   googleSpreadsheetId?: string;
   googleDriveFolderId?: string;
   lastGoogleSync?: string;
+  emailNotifications?: EmailNotificationSettings;
+}
+
+export interface PasswordResetVerifyResponse {
+  valid: boolean;
+  email?: string;
+  userName?: string;
+  userType?: 'admin' | 'technician';
+  message?: string;
 }
 
 export interface AuditLogItem {

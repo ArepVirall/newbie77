@@ -4,6 +4,12 @@ import fs from 'fs';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
+import {
+  sendEmail,
+  buildLoginAlertEmail,
+  buildPasswordResetEmail,
+  buildPasswordChangedNotificationEmail,
+} from './src/services/emailService';
 
 dotenv.config();
 
@@ -17,8 +23,9 @@ const PORT = Number(process.env.PORT) || 3000;
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
-// Data storage directory
-const DATA_DIR = path.join(__dirname, 'data');
+// Data storage directory (compatible with local server and Netlify serverless /tmp)
+const isNetlify = !!process.env.NETLIFY;
+const DATA_DIR = isNetlify ? path.join('/tmp', 'absensi-data') : path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
@@ -151,6 +158,17 @@ interface DatabaseSchema {
     createdAt: string;
     reviewNote?: string;
   }>;
+  passwordResetTokens: Array<{
+    id: string;
+    email: string;
+    token: string;
+    userId: string;
+    userType: 'admin' | 'technician';
+    userName: string;
+    expiresAt: string;
+    used: boolean;
+    createdAt: string;
+  }>;
   settings: {
     workStartTime: string;
     workEndTime: string;
@@ -169,6 +187,13 @@ interface DatabaseSchema {
     googleSpreadsheetId?: string;
     googleDriveFolderId?: string;
     lastGoogleSync?: string;
+    emailNotifications: {
+      enabled: boolean;
+      adminEmail: string;
+      notifyAdminLogin: boolean;
+      notifyTechnicianLogin: boolean;
+      notifyPasswordChanged: boolean;
+    };
   };
   auditLogs: Array<{
     id: string;
@@ -289,6 +314,7 @@ const DEFAULT_DB: DatabaseSchema = {
   attendances: [],
   leaves: [],
   correctionRequests: [],
+  passwordResetTokens: [],
   settings: {
     workStartTime: '08:00:00',
     workEndTime: '17:00:00',
@@ -304,6 +330,13 @@ const DEFAULT_DB: DatabaseSchema = {
     enforceGeofence: true,
     maxGpsAccuracyMeters: 100,
     requireLiveness: true,
+    emailNotifications: {
+      enabled: true,
+      adminEmail: 'rickysantoso71@gmail.com',
+      notifyAdminLogin: true,
+      notifyTechnicianLogin: false,
+      notifyPasswordChanged: true,
+    },
   },
   auditLogs: [
     {
@@ -322,8 +355,16 @@ const DEFAULT_DB: DatabaseSchema = {
 function readDb(): DatabaseSchema {
   try {
     if (!fs.existsSync(DB_FILE)) {
-      fs.writeFileSync(DB_FILE, JSON.stringify(DEFAULT_DB, null, 2), 'utf-8');
-      return DEFAULT_DB;
+      // If running on Netlify and initial data exists in project data dir, seed from it
+      const seedFile = path.join(__dirname, 'data', 'absensi-store.json');
+      let initialData = DEFAULT_DB;
+      if (fs.existsSync(seedFile)) {
+        try {
+          initialData = { ...DEFAULT_DB, ...JSON.parse(fs.readFileSync(seedFile, 'utf-8')) };
+        } catch {}
+      }
+      fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2), 'utf-8');
+      return initialData;
     }
     const raw = fs.readFileSync(DB_FILE, 'utf-8');
     const data = JSON.parse(raw);
@@ -332,6 +373,15 @@ function readDb(): DatabaseSchema {
       ...data,
       workLocations: data.workLocations && data.workLocations.length > 0 ? data.workLocations : DEFAULT_DB.workLocations,
       rejectedAttendances: data.rejectedAttendances || [],
+      passwordResetTokens: data.passwordResetTokens || [],
+      settings: {
+        ...DEFAULT_DB.settings,
+        ...(data.settings || {}),
+        emailNotifications: {
+          ...DEFAULT_DB.settings.emailNotifications,
+          ...(data.settings?.emailNotifications || {}),
+        },
+      },
     };
   } catch (err) {
     console.error('Error reading DB file, using fallback:', err);
@@ -460,6 +510,9 @@ app.post('/api/auth/login', (req, res) => {
 
   const db = readDb();
   const trimmed = username.trim();
+  const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.socket.remoteAddress || '127.0.0.1';
+  const userAgent = (req.headers['user-agent'] as string) || 'Browser';
+  const wibNow = getServerWIBTime();
 
   // Try Admin
   if (loginType === 'admin' || !loginType) {
@@ -477,8 +530,27 @@ app.post('/api/auth/login', (req, res) => {
 
       const inputHash = hashPassword(password);
       if (inputHash === admin.passwordHash) {
-        addAuditLog(db, admin.id, admin.fullName, admin.role, 'LOGIN_SUCCESS', 'Admin Auth', 'Admin berhasil login ke dashboard');
+        addAuditLog(db, admin.id, admin.fullName, admin.role, 'LOGIN_SUCCESS', 'Admin Auth', `Admin berhasil login ke dashboard (IP: ${clientIp})`);
         writeDb(db);
+
+        // Security Email Notification for Admin Login (Async fire-and-forget, never breaks login)
+        if (db.settings.emailNotifications?.enabled && db.settings.emailNotifications?.notifyAdminLogin) {
+          const recipient = db.settings.emailNotifications.adminEmail || admin.email;
+          if (recipient) {
+            sendEmail({
+              to: recipient,
+              ...buildLoginAlertEmail({
+                userName: admin.fullName,
+                userEmail: admin.email,
+                role: admin.role === 'superadmin' ? 'Super Administrator' : 'Administrator',
+                timestampWib: wibNow.localFormatted,
+                ipAddress: clientIp,
+                userAgent,
+                status: 'BERHASIL',
+              }),
+            }).catch((e) => console.warn('[EMAIL NOTIFY LOGIN ERROR]', e));
+          }
+        }
 
         const token = 'sess_' + admin.id + '_' + Date.now();
         return res.json({
@@ -515,8 +587,27 @@ app.post('/api/auth/login', (req, res) => {
 
       const inputHash = hashPassword(password);
       if (inputHash === tech.passwordHash) {
-        addAuditLog(db, tech.id, tech.fullName, 'technician', 'LOGIN_SUCCESS', 'Technician Auth', 'Teknisi berhasil login ke portal absensi');
+        addAuditLog(db, tech.id, tech.fullName, 'technician', 'LOGIN_SUCCESS', 'Technician Auth', `Teknisi berhasil login ke portal absensi (IP: ${clientIp})`);
         writeDb(db);
+
+        // Security Email Notification for Technician Login (Optional toggle)
+        if (db.settings.emailNotifications?.enabled && db.settings.emailNotifications?.notifyTechnicianLogin) {
+          const recipient = db.settings.emailNotifications.adminEmail;
+          if (recipient) {
+            sendEmail({
+              to: recipient,
+              ...buildLoginAlertEmail({
+                userName: tech.fullName,
+                userEmail: tech.email,
+                role: `Teknisi Lapangan (${tech.technicianId})`,
+                timestampWib: wibNow.localFormatted,
+                ipAddress: clientIp,
+                userAgent,
+                status: 'BERHASIL',
+              }),
+            }).catch((e) => console.warn('[EMAIL NOTIFY TECH LOGIN ERROR]', e));
+          }
+        }
 
         const token = 'sess_' + tech.id + '_' + Date.now();
         return res.json({
@@ -541,6 +632,9 @@ app.post('/api/auth/login', (req, res) => {
     }
   }
 
+  addAuditLog(db, 'anonymous', trimmed, 'unknown', 'LOGIN_FAILED', 'Auth', `Percobaan login gagal untuk user: ${trimmed} (IP: ${clientIp})`);
+  writeDb(db);
+
   return res.status(401).json({ status: 'error', message: 'Kredensial tidak sesuai. Periksa kembali Username/Nomor HP dan Kata Sandi.' });
 });
 
@@ -552,6 +646,9 @@ app.post('/api/auth/change-password', (req, res) => {
   }
 
   const db = readDb();
+  const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.socket.remoteAddress || '127.0.0.1';
+  const wibNow = getServerWIBTime();
+
   if (userType === 'admin') {
     const admin = db.admins.find((a) => a.id === userId);
     if (!admin) return res.status(404).json({ status: 'error', message: 'Akun admin tidak ditemukan.' });
@@ -564,6 +661,19 @@ app.post('/api/auth/change-password', (req, res) => {
     admin.mustChangePassword = false;
     addAuditLog(db, admin.id, admin.fullName, admin.role, 'PASSWORD_CHANGE', 'Admin Auth', 'Admin berhasil memperbarui kata sandi akun');
     writeDb(db);
+
+    // Security email notification
+    if (db.settings.emailNotifications?.enabled && db.settings.emailNotifications?.notifyPasswordChanged && admin.email) {
+      sendEmail({
+        to: admin.email,
+        ...buildPasswordChangedNotificationEmail({
+          userName: admin.fullName,
+          timestampWib: wibNow.localFormatted,
+          ipAddress: clientIp,
+        }),
+      }).catch((e) => console.warn('[EMAIL NOTIFY PASSWORD CHANGED ERROR]', e));
+    }
+
     return res.json({ status: 'success', message: 'Kata sandi berhasil diperbarui.' });
   } else {
     const tech = db.technicians.find((t) => t.id === userId);
@@ -577,11 +687,266 @@ app.post('/api/auth/change-password', (req, res) => {
     tech.mustChangePassword = false;
     addAuditLog(db, tech.id, tech.fullName, 'technician', 'PASSWORD_CHANGE', 'Technician Auth', 'Teknisi berhasil memperbarui kata sandi');
     writeDb(db);
+
+    // Security email notification
+    if (db.settings.emailNotifications?.enabled && db.settings.emailNotifications?.notifyPasswordChanged && tech.email) {
+      sendEmail({
+        to: tech.email,
+        ...buildPasswordChangedNotificationEmail({
+          userName: tech.fullName,
+          timestampWib: wibNow.localFormatted,
+          ipAddress: clientIp,
+        }),
+      }).catch((e) => console.warn('[EMAIL NOTIFY PASSWORD CHANGED ERROR]', e));
+    }
+
     return res.json({ status: 'success', message: 'Kata sandi berhasil diperbarui.' });
   }
 });
 
-// 4. Admin Forgot Password / Emergency Recovery
+// 4. Request Password Reset Link (Forgot Password Flow)
+app.post('/api/auth/forgot-password', async (req, res) => {
+  const { email } = req.body;
+  if (!email || !email.includes('@')) {
+    return res.status(400).json({ status: 'error', message: 'Alamat email tidak valid.' });
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const db = readDb();
+  const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.socket.remoteAddress || '127.0.0.1';
+
+  // Find user by email (Admin or Technician)
+  const targetAdmin = db.admins.find((a) => a.email.toLowerCase() === cleanEmail);
+  const targetTech = !targetAdmin ? db.technicians.find((t) => t.email.toLowerCase() === cleanEmail) : null;
+  const targetUser = targetAdmin || targetTech;
+
+  // Always return identical success message to prevent user enumeration attacks
+  const safeSuccessMsg = 'Jika alamat email terdaftar pada sistem, instruksi pemulihan kata sandi telah dikirimkan ke email Anda.';
+
+  if (!targetUser) {
+    addAuditLog(db, 'system', 'Guest', 'system', 'FORGOT_PASSWORD_ATTEMPT', 'Security', `Permintaan reset password untuk email yang tidak terdaftar: ${cleanEmail} (IP: ${clientIp})`);
+    writeDb(db);
+    return res.json({ status: 'success', message: safeSuccessMsg });
+  }
+
+  // Generate secure 32-byte hex token
+  const token = crypto.randomBytes(32).toString('hex');
+  const tokenExpiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 60 minutes expiry
+
+  // Invalidate any existing unused reset tokens for this user
+  if (!db.passwordResetTokens) db.passwordResetTokens = [];
+  db.passwordResetTokens = db.passwordResetTokens.map((t) => (t.email === cleanEmail && !t.used ? { ...t, used: true } : t));
+
+  const resetRecord = {
+    id: 'reset-' + Date.now() + '-' + crypto.randomBytes(4).toString('hex'),
+    email: cleanEmail,
+    token,
+    userId: targetUser.id,
+    userType: targetAdmin ? ('admin' as const) : ('technician' as const),
+    userName: targetUser.fullName,
+    expiresAt: tokenExpiresAt,
+    used: false,
+    createdAt: new Date().toISOString(),
+  };
+
+  db.passwordResetTokens.push(resetRecord);
+
+  // Determine base URL dynamically
+  const host = req.get('host') || 'localhost:3000';
+  const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+  const baseUrl = process.env.APP_URL || (req.headers.origin as string) || `${protocol}://${host}`;
+  const resetLink = `${baseUrl}/?mode=reset&token=${token}`;
+
+  addAuditLog(
+    db,
+    targetUser.id,
+    targetUser.fullName,
+    targetAdmin ? 'admin' : 'technician',
+    'FORGOT_PASSWORD_REQUEST',
+    'Auth Recovery',
+    `Permintaan link reset password dibuat untuk ${cleanEmail} (IP: ${clientIp})`
+  );
+  writeDb(db);
+
+  // Send transactional email
+  try {
+    await sendEmail({
+      to: cleanEmail,
+      ...buildPasswordResetEmail({
+        userName: targetUser.fullName,
+        resetLink,
+        expiresInMinutes: 60,
+      }),
+    });
+  } catch (err) {
+    console.warn('[FORGOT PASSWORD EMAIL SEND ERROR]', err);
+  }
+
+  return res.json({ status: 'success', message: safeSuccessMsg });
+});
+
+// 5. Verify Password Reset Token
+app.get('/api/auth/verify-reset-token', (req, res) => {
+  const { token } = req.query;
+  if (!token || typeof token !== 'string') {
+    return res.status(400).json({ status: 'error', valid: false, message: 'Token reset password tidak valid.' });
+  }
+
+  const db = readDb();
+  const resetItem = (db.passwordResetTokens || []).find((t) => t.token === token);
+
+  if (!resetItem) {
+    return res.status(400).json({ status: 'error', valid: false, message: 'Tautan reset tidak ditemukan atau sudah tidak berlaku.' });
+  }
+
+  if (resetItem.used) {
+    return res.status(400).json({ status: 'error', valid: false, message: 'Tautan reset password ini sudah pernah digunakan.' });
+  }
+
+  if (new Date(resetItem.expiresAt) <= new Date()) {
+    return res.status(400).json({ status: 'error', valid: false, message: 'Tautan reset password telah kedaluwarsa (masa berlaku 60 menit).' });
+  }
+
+  const maskedEmail = resetItem.email.replace(/(.{2})(.*)(@.*)/, '$1***$3');
+
+  return res.json({
+    status: 'success',
+    valid: true,
+    email: maskedEmail,
+    userName: resetItem.userName,
+    userType: resetItem.userType,
+  });
+});
+
+// 6. Execute Password Reset via Token
+app.post('/api/auth/reset-password', (req, res) => {
+  const { token, newPassword } = req.body;
+  if (!token || !newPassword || newPassword.length < 6) {
+    return res.status(400).json({ status: 'error', message: 'Token dan kata sandi baru (minimal 6 karakter) wajib diisi.' });
+  }
+
+  const db = readDb();
+  const resetItem = (db.passwordResetTokens || []).find((t) => t.token === token);
+
+  if (!resetItem || resetItem.used || new Date(resetItem.expiresAt) <= new Date()) {
+    return res.status(400).json({ status: 'error', message: 'Tautan reset tidak valid atau sudah kedaluwarsa.' });
+  }
+
+  const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.socket.remoteAddress || '127.0.0.1';
+  const wibNow = getServerWIBTime();
+
+  if (resetItem.userType === 'admin') {
+    const admin = db.admins.find((a) => a.id === resetItem.userId);
+    if (!admin) return res.status(404).json({ status: 'error', message: 'Akun admin tidak ditemukan.' });
+
+    admin.passwordHash = hashPassword(newPassword);
+    admin.mustChangePassword = false;
+    resetItem.used = true;
+
+    addAuditLog(db, admin.id, admin.fullName, admin.role, 'RESET_PASSWORD_SUCCESS', 'Auth Recovery', `Kata sandi admin berhasil direset via token email (IP: ${clientIp})`);
+    writeDb(db);
+
+    // Send change confirmation email
+    sendEmail({
+      to: admin.email,
+      ...buildPasswordChangedNotificationEmail({
+        userName: admin.fullName,
+        timestampWib: wibNow.localFormatted,
+        ipAddress: clientIp,
+      }),
+    }).catch((e) => console.warn('[EMAIL NOTIFY ERROR]', e));
+
+    return res.json({ status: 'success', message: 'Kata sandi berhasil diperbarui! Silakan masuk dengan kata sandi baru Anda.' });
+  } else {
+    const tech = db.technicians.find((t) => t.id === resetItem.userId);
+    if (!tech) return res.status(404).json({ status: 'error', message: 'Akun teknisi tidak ditemukan.' });
+
+    tech.passwordHash = hashPassword(newPassword);
+    tech.mustChangePassword = false;
+    resetItem.used = true;
+
+    addAuditLog(db, tech.id, tech.fullName, 'technician', 'RESET_PASSWORD_SUCCESS', 'Auth Recovery', `Kata sandi teknisi berhasil direset via token email (IP: ${clientIp})`);
+    writeDb(db);
+
+    // Send change confirmation email
+    sendEmail({
+      to: tech.email,
+      ...buildPasswordChangedNotificationEmail({
+        userName: tech.fullName,
+        timestampWib: wibNow.localFormatted,
+        ipAddress: clientIp,
+      }),
+    }).catch((e) => console.warn('[EMAIL NOTIFY ERROR]', e));
+
+    return res.json({ status: 'success', message: 'Kata sandi berhasil diperbarui! Silakan masuk dengan kata sandi baru Anda.' });
+  }
+});
+
+// 7. Update Email Notification Settings & Diagnostics
+app.put('/api/admin/settings/email', async (req, res) => {
+  const { enabled, adminEmail, notifyAdminLogin, notifyTechnicianLogin, notifyPasswordChanged, testSend, adminActorId, adminActorName } = req.body;
+  const db = readDb();
+
+  if (!db.settings.emailNotifications) {
+    db.settings.emailNotifications = {
+      enabled: true,
+      adminEmail: 'rickysantoso71@gmail.com',
+      notifyAdminLogin: true,
+      notifyTechnicianLogin: false,
+      notifyPasswordChanged: true,
+    };
+  }
+
+  if (typeof enabled === 'boolean') db.settings.emailNotifications.enabled = enabled;
+  if (adminEmail && typeof adminEmail === 'string') db.settings.emailNotifications.adminEmail = adminEmail.trim().toLowerCase();
+  if (typeof notifyAdminLogin === 'boolean') db.settings.emailNotifications.notifyAdminLogin = notifyAdminLogin;
+  if (typeof notifyTechnicianLogin === 'boolean') db.settings.emailNotifications.notifyTechnicianLogin = notifyTechnicianLogin;
+  if (typeof notifyPasswordChanged === 'boolean') db.settings.emailNotifications.notifyPasswordChanged = notifyPasswordChanged;
+
+  addAuditLog(
+    db,
+    adminActorId || 'admin',
+    adminActorName || 'Admin',
+    'admin',
+    'UPDATE_EMAIL_SETTINGS',
+    'Keamanan Email',
+    `Memperbarui pengaturan notifikasi email: Penerima ${db.settings.emailNotifications.adminEmail}, Alert Admin: ${db.settings.emailNotifications.notifyAdminLogin}`
+  );
+  writeDb(db);
+
+  let testResult = null;
+  if (testSend && db.settings.emailNotifications.adminEmail) {
+    const wib = getServerWIBTime();
+    testResult = await sendEmail({
+      to: db.settings.emailNotifications.adminEmail,
+      subject: '[Test] Uji Coba Notifikasi Email — Absensi Teknisi Online',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 500px; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px;">
+          <h2 style="color: #0284c7; margin-top: 0;">Uji Koneksi Notifikasi Email Berhasil!</h2>
+          <p style="font-size: 13px; color: #334155;">Email uji coba ini mengonfirmasi bahwa layanan pengiriman email untuk sistem <b>Absensi Teknisi Online</b> telah aktif dan siap menerima notifikasi keamanan login dan pemulihan kata sandi.</p>
+          <p style="font-size: 11px; color: #64748b; font-family: monospace;">Waktu Uji: ${wib.localFormatted}</p>
+        </div>
+      `,
+      text: `Uji koneksi email sistem Absensi Teknisi Online berhasil pada ${wib.localFormatted}.`,
+    });
+  }
+
+  const hasResend = !!process.env.RESEND_API_KEY;
+  const hasBrevo = !!process.env.BREVO_API_KEY;
+
+  return res.json({
+    status: 'success',
+    message: 'Pengaturan notifikasi email berhasil disimpan.',
+    data: {
+      ...db.settings.emailNotifications,
+      hasResendKey: hasResend,
+      hasBrevoKey: hasBrevo,
+      testResult,
+    },
+  });
+});
+
+// 8. Admin Forgot Password / Emergency Recovery (Master Code Fallback)
 app.post('/api/auth/recover-admin', (req, res) => {
   const { recoveryCode, newPassword } = req.body;
   if (recoveryCode !== 'RECOVER-ADMIN-2026') {
@@ -1573,7 +1938,11 @@ async function startServer() {
   });
 }
 
-startServer().catch((err) => {
-  console.error('Failed to start server:', err);
-  process.exit(1);
-});
+if (!process.env.NETLIFY) {
+  startServer().catch((err) => {
+    console.error('Failed to start server:', err);
+    process.exit(1);
+  });
+}
+
+export { app };

@@ -3,6 +3,7 @@ import { UserSession } from './types';
 import { Navbar } from './components/Navbar';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { LoginView } from './views/LoginView';
+import { ResetPasswordView } from './views/ResetPasswordView';
 import { AdminDashboard } from './views/AdminDashboard';
 import { TechnicianDashboard } from './views/TechnicianDashboard';
 import { api } from './services/api';
@@ -23,6 +24,16 @@ export default function App() {
       return localStorage.getItem('absensi_theme') === 'dark';
     } catch {
       return false;
+    }
+  });
+
+  // Reset password token from email link
+  const [resetToken, setResetToken] = useState<string | null>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('token');
+    } catch {
+      return null;
     }
   });
 
@@ -94,7 +105,23 @@ export default function App() {
       />
 
       <main className="flex-1 pb-12">
-        {!user ? (
+        {resetToken ? (
+          <ResetPasswordView
+            token={resetToken}
+            onSuccess={() => {
+              try {
+                window.history.replaceState({}, '', window.location.pathname);
+              } catch {}
+              setResetToken(null);
+            }}
+            onBackToLogin={() => {
+              try {
+                window.history.replaceState({}, '', window.location.pathname);
+              } catch {}
+              setResetToken(null);
+            }}
+          />
+        ) : !user ? (
           <LoginView onLoginSuccess={handleLoginSuccess} />
         ) : user.type === 'admin' ? (
           <AdminDashboard user={user} />

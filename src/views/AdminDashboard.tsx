@@ -45,7 +45,10 @@ import {
   ShieldAlert,
   Download,
   Crosshair,
+  Mail,
+  Send,
 } from 'lucide-react';
+import { PWAInstallButton } from '../components/PWAInstallButton';
 
 interface AdminDashboardProps {
   user: UserSession;
@@ -116,6 +119,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
   // Settings Form State
   const [settingsForm, setSettingsForm] = useState<AdminSettings | null>(null);
 
+  // Email Notifications State
+  const [emailForm, setEmailForm] = useState({
+    enabled: true,
+    adminEmail: 'rickysantoso71@gmail.com',
+    notifyAdminLogin: true,
+    notifyTechnicianLogin: false,
+    notifyPasswordChanged: true,
+    hasResendKey: false,
+    hasBrevoKey: false,
+  });
+  const [testEmailLoading, setTestEmailLoading] = useState(false);
+  const [testEmailFeedback, setTestEmailFeedback] = useState<string | null>(null);
+
   // Google Sync State
   const [googleUser, setGoogleUser] = useState<any>(null);
   const [syncInProgress, setSyncInProgress] = useState(false);
@@ -152,6 +168,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
       setLeaves(leaveData);
       setSettings(setData);
       setSettingsForm(setData);
+      if (setData?.emailNotifications) {
+        setEmailForm((prev) => ({ ...prev, ...setData.emailNotifications }));
+      }
       setAdmins(adminData);
       setAuditLogs(auditData);
     } catch (err: any) {
@@ -458,6 +477,55 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
     }
   };
 
+  // Save Email Security Settings
+  const handleSaveEmailSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await api.updateEmailSettings({
+        ...emailForm,
+        adminActorId: user.id,
+        adminActorName: user.fullName,
+      });
+      setEmailForm((prev) => ({ ...prev, ...res.data }));
+      setNotification({
+        type: 'success',
+        message: 'Pengaturan notifikasi keamanan email berhasil disimpan!',
+      });
+    } catch (err: any) {
+      setNotification({ type: 'error', message: err.message || 'Gagal menyimpan pengaturan email.' });
+    }
+  };
+
+  const handleTestEmailSend = async () => {
+    try {
+      setTestEmailLoading(true);
+      setTestEmailFeedback(null);
+      const res = await api.updateEmailSettings({
+        ...emailForm,
+        testSend: true,
+        adminActorId: user.id,
+        adminActorName: user.fullName,
+      });
+      setEmailForm((prev) => ({ ...prev, ...res.data }));
+      if (res.data.testResult?.success) {
+        setTestEmailFeedback(`Email berhasil dikirim via provider ${res.data.testResult.provider} (ID: ${res.data.testResult.messageId || 'OK'})`);
+      } else {
+        setTestEmailFeedback(
+          res.data.testResult?.error ||
+            'Email simulasi tercatat di server log. Konfigurasikan RESEND_API_KEY di Netlify untuk pengiriman langsung.'
+        );
+      }
+      setNotification({
+        type: 'success',
+        message: 'Permintaan uji coba email telah diproses oleh server.',
+      });
+    } catch (err: any) {
+      setNotification({ type: 'error', message: err.message || 'Gagal mengirim email uji coba.' });
+    } finally {
+      setTestEmailLoading(false);
+    }
+  };
+
   // Trigger Google Sync
   const handleRunGoogleSync = async () => {
     let token = getCachedAccessToken();
@@ -621,6 +689,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
             <FileSpreadsheet className="w-3.5 h-3.5" />
             <span>Laporan</span>
           </button>
+
+          <PWAInstallButton className="inline-flex items-center gap-1.5 rounded-xl bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 text-white px-3 py-2 text-xs font-semibold shadow-sm transition" />
 
           <button
             onClick={loadData}
@@ -1499,6 +1569,137 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
               >
                 Simpan Perubahan Pengaturan
               </button>
+            </div>
+          </div>
+
+          {/* EMAIL NOTIFICATIONS & SECURITY ALERT CARD */}
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Mail className="w-5 h-5 text-sky-500" />
+                  Notifikasi Keamanan Email (Resend / Brevo)
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Kirim peringatan otomatis saat terjadi login admin, perubahan kata sandi, dan permintaan pemulihan akun.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span
+                  className={`text-[11px] font-bold px-2.5 py-1 rounded-lg ${
+                    emailForm.hasResendKey || emailForm.hasBrevoKey
+                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                      : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                  }`}
+                >
+                  {emailForm.hasResendKey
+                    ? 'API Resend Terpasang'
+                    : emailForm.hasBrevoKey
+                    ? 'API Brevo Terpasang'
+                    : 'Logging Server (Siap Resend)'}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-4 pt-2">
+              <div className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700">
+                <div>
+                  <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                    Aktifkan Notifikasi Email Sistem
+                  </div>
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Kirim email transaksi pemulihan password dan peringatan keamanan secara otomatis
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={emailForm.enabled}
+                  onChange={(e) => setEmailForm({ ...emailForm, enabled: e.target.checked })}
+                  className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500 cursor-pointer"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Alamat Email Admin Penerima Notifikasi & Peringatan Keamanan
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={emailForm.adminEmail}
+                  onChange={(e) => setEmailForm({ ...emailForm, adminEmail: e.target.value })}
+                  placeholder="admin@perusahaan.co.id"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-800 dark:text-slate-200 font-mono"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <label className="flex items-start gap-2 p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={emailForm.notifyAdminLogin}
+                    onChange={(e) => setEmailForm({ ...emailForm, notifyAdminLogin: e.target.checked })}
+                    className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500 mt-0.5"
+                  />
+                  <div>
+                    <div className="text-xs font-bold text-slate-800 dark:text-slate-200">Login Admin</div>
+                    <div className="text-[10px] text-slate-500 dark:text-slate-400">Peringatan saat admin berhasil masuk</div>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-2 p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={emailForm.notifyTechnicianLogin}
+                    onChange={(e) => setEmailForm({ ...emailForm, notifyTechnicianLogin: e.target.checked })}
+                    className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500 mt-0.5"
+                  />
+                  <div>
+                    <div className="text-xs font-bold text-slate-800 dark:text-slate-200">Login Teknisi</div>
+                    <div className="text-[10px] text-slate-500 dark:text-slate-400">Opsional pantau login teknisi</div>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-2 p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={emailForm.notifyPasswordChanged}
+                    onChange={(e) => setEmailForm({ ...emailForm, notifyPasswordChanged: e.target.checked })}
+                    className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500 mt-0.5"
+                  />
+                  <div>
+                    <div className="text-xs font-bold text-slate-800 dark:text-slate-200">Password Berubah</div>
+                    <div className="text-[10px] text-slate-500 dark:text-slate-400">Konfirmasi keamanan ganti sandi</div>
+                  </div>
+                </label>
+              </div>
+
+              {testEmailFeedback && (
+                <div className="p-3 bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800 rounded-xl text-xs text-sky-800 dark:text-sky-200">
+                  {testEmailFeedback}
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={handleTestEmailSend}
+                  disabled={testEmailLoading}
+                  className="px-4 py-2 rounded-xl border border-sky-300 dark:border-sky-800 bg-sky-50 dark:bg-sky-950/50 hover:bg-sky-100 text-sky-700 dark:text-sky-300 text-xs font-semibold transition flex items-center gap-1.5"
+                >
+                  <Send className={`w-3.5 h-3.5 ${testEmailLoading ? 'animate-spin' : ''}`} />
+                  <span>{testEmailLoading ? 'Mengirim Uji Coba...' : 'Kirim Email Uji Coba (Test Send)'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSaveEmailSettings}
+                  className="px-6 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold shadow transition"
+                >
+                  Simpan Pengaturan Email
+                </button>
+              </div>
             </div>
           </div>
         </form>
